@@ -1,6 +1,20 @@
+#include <SPI.h>
+#include <Wire.h>
 #include <TinyGPS++.h>
+#include <Adafruit_GFX.h>
 #include <SoftwareSerial.h>
+#include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
+
+char name[32] = "rainbow fish";
+char time[32] = "ERROR: unknown time";
+char status[32] = "dildowagon";
+#define OLED_RESET 7
+Adafruit_SSD1306 display(OLED_RESET);
+#if (SSD1306_LCDHEIGHT != 32)
+#error("Height incorrect, please fix Adafruit_SSD1306.h!");
+#endif
+
 #ifdef __AVR__
   #include <avr/power.h>
 #endif
@@ -16,11 +30,22 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN, NEO_GRBW + NEO_KHZ800
 TinyGPSPlus gps;
 SoftwareSerial ss(RXPin, TXPin);
 
+//for messages to the oled (tmp)
+String tmp;
+
 void setup()
 {
   Serial.begin(115200);
   ss.begin(GPSBaud);
-  Serial.println("INFO: Starting up.");
+  //start ssd1306
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // init done
+  display.clearDisplay();
+  display.display();
+
+  //end ssd1306
+  updateStatus( "INFO: Starting up." );
+  //
   strip.setBrightness(BRIGHTNESS);
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -28,9 +53,6 @@ void setup()
   colorWipe(strip.Color(0, 255, 0), SPEED); // Green
   colorWipe(strip.Color(0, 0, 255), SPEED); // Blue
   colorWipe(strip.Color(0, 0, 0, 255), SPEED); // White
-  int i = gps.time.hour();
-  Serial.print("GPS thinks the hour is:");
-  Serial.println(i);
 }
 // times
 // 06-08, red.
@@ -41,57 +63,69 @@ void setup()
 int hourLastSeen = -1;
 void loop()
 {
+  if (millis() > 5000 && gps.charsProcessed() < 10)
+  {
+    updateStatus("ERROR: No GPS Module: check wiring.");
+    render();
+    return;
+  }
+  render();
   while (ss.available() > 0)
   {
     if (gps.encode(ss.read()))
     {
       if (gps.date.isValid())
       {
+        if(!gps.location.isValid())
+        {
+          updateStatus("No GPS Location.");
+          updateTime("ERROR");
+          return;
+        }
         int i = gps.time.hour();
         if(hourLastSeen != i)
         {
-          Serial.print("GPS thinks the hour is:");
-          Serial.println(i);
+          char tmp2[32] = "*****************";
+          sprintf(tmp2, "%02d:%02d:%02d ", gps.time.hour(), gps.time.minute(), gps.time.second());
+          updateTime((String)gps.location.isValid());
+          
           // 00-06, off;
-          //mark has herpes, twice.. no threetimes. im sure.
+          //
+          
           if( (i>=0)&&(i<6) )
           {
             colorWipe(strip.Color(0, 0, 0, 0), 0); // off I think.
-            Serial.println(F("midnight through to 6am, lights out"));
+            updateStatus("00-06 lights out.");
           }
           //06-08, red.
           if( (i>=6)&&(i<8) )
           {
             colorWipe(strip.Color(255, 0, 0), SPEED); // Red
-            Serial.println(F("6am through to 8am, red colour set"));
+            updateStatus("06-08 red.");
           }
           // 08-22, white.
           if( (i>=8)&&(i<22) )
           {
             colorWipe(strip.Color(0, 0, 0, 255), SPEED); // White
-            Serial.println(F("8am through to 10pm, white colour set"));
+            updateStatus("08-22 white.");
           }
           // 22-00, blue.
           if(i>=22)
           {
             colorWipe(strip.Color(0, 0, 255), SPEED); // Blue
-            Serial.println(F("10pm through to midnight, blue colour set"));
+            updateStatus("22-00 blue.");
           }
           hourLastSeen = i;
         }
       }
       else
       {
-        Serial.println(F("ERROR: no time and date set/detected on the gps module rtc, probably need to go outside with the antenna, in the snow!"));
+        updateStatus("ERROR: no time and date.");
       }
     }
   }
 
-  if (millis() > 5000 && gps.charsProcessed() < 10)
-  {
-    Serial.println(F("ERROR: No GPS detected: check wiring."));
-    while(true);
-  }
+
 }
 
 // Fill the dots one after the other with a color
@@ -103,3 +137,30 @@ void colorWipe(uint32_t c, uint8_t wait) {
   }
 }
 
+void updateStatus(String message) {
+  message.toCharArray(status, message.length()+1);
+  Serial.println(message);
+  render();
+  delay(1000);
+}
+void updateTime(String message) {
+  message.toCharArray(time, message.length()+1);
+  Serial.println(message);
+  render();
+  delay(1000);
+}
+
+void render() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.println(name);
+  display.setTextColor(BLACK, WHITE); // 'inverted' text
+  display.println(time);
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.println(status);
+  display.display();
+  delay(2000);
+}
